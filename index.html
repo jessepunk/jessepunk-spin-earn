@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>QuizChain</title>
+  <script type="module">
+    import { useFarcasterUser, useFrameContext } from "https://unpkg.com/@farcaster/mini-app-sdk@0.1.0/dist/index.js";
+
+    let user, isConnected = false;
+
+    // Initialize auth
+    useFarcasterUser().then(u => {
+      if (u) {
+        user = u;
+        document.getElementById("welcome").innerText = `Welcome, @${u.username}!`;
+        checkEntryStatus();
+      }
+    });
+
+    // Check if user paid entry fee (off-chain proof or on-chain call)
+    async function checkEntryStatus() {
+      // 🚧 TODO: call your backend or read from contract
+      const hasAccess = await fetch(`/api/has-access?fid=${user.fid}`).then(r => r.json());
+      if (hasAccess) {
+        showQuestion();
+      } else {
+        document.getElementById("entry-screen").style.display = "block";
+      }
+    }
+
+    // Pay one-time entry fee
+    async function payEntryFee() {
+      if (!window.ethereum) return alert("Connect wallet (e.g., via Warpcast)");
+
+      try {
+        const tx = {
+          to: "0xYourQuizChainContract", // ← your contract
+          value: "0x" + (5e14).toString(16), // 0.0005 ETH in wei
+          data: "0x" // or encodeFunctionData("payEntry")
+        };
+        const txHash = await window.ethereum.request({
+          method: "eth_sendTransaction",
+          params: [tx]
+        });
+        // Wait for confirmation...
+        alert("Entry granted! Loading question...");
+        showQuestion();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // Unlock answer (pay 10 DEGEN)
+    async function unlockAnswer() {
+      const degenAddress = "0x4ed4E862860beD51a9570b96d89aF5E1B0Efefed"; // $DEGEN on Base
+      const amount = "0x" + (10n * 10n**18n).toString(16); // 10 DEGEN
+
+      try {
+        const tx = {
+          to: degenAddress,
+          data: "0xa9059cbb" + // transfer(address,uint256)
+                user.custodyAddress.slice(2).padStart(64, '0') +
+                amount.slice(2).padStart(64, '0')
+        };
+        await window.ethereum.request({ method: "eth_sendTransaction", params: [tx] });
+        revealOptions();
+      } catch (e) {
+        alert("Payment failed 😕");
+      }
+    }
+
+    function revealOptions() {
+      document.getElementById("unlock-btn").style.display = "none";
+      document.getElementById("options").style.display = "block";
+    }
+
+    function submitAnswer(choice) {
+      // 🚧 Validate on backend/smart contract
+      fetch("/api/submit", {
+        method: "POST",
+        body: JSON.stringify({ fid: user.fid, answer: choice })
+      }).then(r => r.json()).then(res => {
+        if (res.correct && res.isFirst) {
+          alert(`🎉 You win ${res.prize} $DEGEN!`);
+          // Auto-cast win
+          const frameCtx = useFrameContext();
+          frameCtx.cast(`I just won ${res.prize} $DEGEN on QuizChain! 🧠 Try it: https://quizchain.vercel.app`);
+        } else {
+          alert(`❌ ${res.correct ? "You were late!" : "Wrong!"}\nAnswer: ${res.correctAnswer}`);
+        }
+      });
+    }
+
+    function showQuestion() {
+      document.getElementById("entry-screen").style.display = "none";
+      document.getElementById("quiz-screen").style.display = "block";
+    }
+  </script>
+</head>
+<body style="font-family:sans-serif; padding:20px; max-width:500px; margin:auto">
+  <h1>🧠 QuizChain</h1>
+  <p id="welcome">Connecting...</p>
+
+  <!-- Entry Screen -->
+  <div id="entry-screen" style="display:none">
+    <p>🔓 One-time entry: <strong>0.0005 ETH</strong></p>
+    <p>Grants lifetime access to all quizzes.</p>
+    <button onclick="payEntryFee()" style="padding:10px;background:#000;color:#fff;border:0;border-radius:6px">
+      Pay & Enter
+    </button>
+  </div>
+
+  <!-- Quiz Screen -->
+  <div id="quiz-screen" style="display:none">
+    <h3>What was Farcaster’s original codename?</h3>
+    <p><em>Pay 10 $DEGEN to unlock options...</em></p>
+    <button id="unlock-btn" onclick="unlockAnswer()" 
+      style="padding:10px;background:#6e56f7;color:white;border:0;border-radius:6px">
+      🔓 Unlock Answer (10 $DEGEN)
+    </button>
+
+    <div id="options" style="display:none; margin-top:20px">
+      <button onclick="submitAnswer('A')" style="display:block;margin:5px 0;width:100%">A) Beacon</button>
+      <button onclick="submitAnswer('B')" style="display:block;margin:5px 0;width:100%">B) Lightbeam</button>
+      <button onclick="submitAnswer('C')" style="display:block;margin:5px 0;width:100%">C) Firehose</button>
+      <button onclick="submitAnswer('D')" style="display:block;margin:5px 0;width:100%">D) Warp</button>
+    </div>
+  </div>
+</body>
+         </html>
